@@ -4,10 +4,10 @@
     "codeowners": ["@galletn"],
     "config_flow": false,
     "dependencies": [],
-    "documentation": "https://github.com/galletn/iaqualink/",
+    "documentation": "https://github.com/galletn/upoffiz/,
     "integration_type": "device",
     "iot_class": "cloud_polling",
-    "issue_tracker": "https://github.com/galletn/iaqualink/issues/",
+    "issue_tracker": "https://github.com/galletn/upoffiz/issues/",
     "requirements": [],
     "version": "v0.3.1"
   }
