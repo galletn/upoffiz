@@ -4,7 +4,7 @@
     "codeowners": ["@galletn"],
     "config_flow": false,
     "dependencies": [],
-    "documentation": "https://github.com/galletn/upoffiz/,
+    "documentation": "https://github.com/galletn/upoffiz/",
     "integration_type": "device",
     "iot_class": "cloud_polling",
     "issue_tracker": "https://github.com/galletn/upoffiz/issues/",
