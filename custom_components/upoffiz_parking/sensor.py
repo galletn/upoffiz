@@ -24,6 +24,12 @@ class UpoffizParkingSensor(Entity):
         self._password = config.get('password')
         self._attributes = {}
         self._cookie = None
+        self._icon = "mdi:parking"
+
+
+    @property
+    def icon(self):
+        return self._icon
 
     @property
     def name(self):
