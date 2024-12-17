@@ -27,4 +27,3 @@ add the following entry to the config file:
       password: [password]
 ```
 
-From now on please use the vacuum entity, I will no longer update the sensor integration as more is possible with the vacuum entity
