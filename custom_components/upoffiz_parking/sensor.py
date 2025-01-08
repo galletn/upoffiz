@@ -1,103 +1,31 @@
 import logging
+import asyncio
+import json
+import datetime
+import aiohttp
 import requests
-from homeassistant.components.sensor import SensorEntity
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from datetime import timedelta
+from urllib.parse import urlparse, parse_qs
 
-from .constants import (
-    SCAN_INTERVAL,
-    FIELDS_GARAGE,
-    FIELDS_MOBI,
-    FIELDS_PR,
-    API_PARKING,
-    API_PR,
-    API_MOBI,
-)
+from homeassistant.helpers.entity import Entity
 
 _LOGGER = logging.getLogger(__name__)
 
-""" requests only fetch a subset of relevant data, more documentation via the url. """
-""" the mobi endpoint is only used for 3 extra parking locations that are not available in the parking garage or p+r endpoints"""
-PARKING_API_URLS = [
-    {
-        "documentationUrl": "https://data.stad.gent/explore/dataset/bezetting-parkeergarages-real-time/information/?sort=-occupation",
-        "url": API_PARKING,
-        "mapping": FIELDS_GARAGE,
-    },
-    {
-        "documentationUrl": "https://data.stad.gent/explore/dataset/real-time-bezetting-pr-gent/information/?sort=name",
-        "url": API_PR,
-        "mapping": FIELDS_PR,
-    },
-    {
-        "documentationUrl": "https://data.stad.gent/explore/dataset/mobi-parkings/information/",
-        "url": API_MOBI,
-        "mapping": FIELDS_MOBI,
-    },
-]
-
-
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Set up the Parking Gent sensor platform."""
-    coordinator = ParkingGentCoordinator(hass)
-    await coordinator.async_config_entry_first_refresh()
+    async_add_entities([UpoffizParkingSensor(config)])
 
-    sensors = []
-    for parking_id, parking_data in coordinator.data.items():
-        sensors.append(ParkingSensor(coordinator, parking_id, parking_data))
+class UpoffizParkingSensor(Entity):
+    """Representation of the Upoffiz Parking sensor."""
 
-    async_add_entities(sensors)
-
-
-class ParkingGentCoordinator(DataUpdateCoordinator):
-    """Fetch and normalize parking data from Stad Gent API."""
-
-    def __init__(self, hass):
-        """Initialize the coordinator."""
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="Parking Gent",
-            update_interval=SCAN_INTERVAL,
-        )
-        self.hass = hass
-
-    async def _async_update_data(self):
-        """Fetch and normalize data from API."""
-        try:
-            data = {}
-            for api_config in PARKING_API_URLS:
-                response = await self.hass.async_add_executor_job(
-                    requests.get, api_config["url"]
-                )
-                response.raise_for_status()
-                api_data = response.json()
-                for record in api_data.get("results", []):
-                    normalized_record = self._normalize_record(
-                        record, api_config["mapping"]
-                    )
-                    parking_id = normalized_record["name"]
-                    data[parking_id] = normalized_record
-            return data
-        except Exception as err:
-            raise UpdateFailed(f"Error fetching data: {err}") from err
-
-    def _normalize_record(self, record, mapping):
-        """Normalize the record based on the mapping."""
-        normalized = {}
-        for target_key, source_key in mapping.items():
-            normalized[target_key] = record.get(source_key)
-        return normalized
-
-
-class ParkingSensor(SensorEntity):
-    """Representation of a Parking sensor."""
-
-    def __init__(self, coordinator, parking_id, parking_data):
-        """Initialize the sensor."""
-        self.coordinator = coordinator
-        self.parking_id = parking_id
-        self.parking_data = parking_data
+    def __init__(self, config):
+        self._state = None
+        self._name = "Upoffiz Parking"
+        self._username = config.get('username')
+        self._password = config.get('password')
+        self._attributes = {}
+        self._cookie = None
         self._icon = "mdi:parking"
+
 
     @property
     def icon(self):
@@ -105,44 +33,93 @@ class ParkingSensor(SensorEntity):
 
     @property
     def name(self):
-        """Return the name of the sensor."""
-        return self.parking_data["name"]
+        return self._name
 
     @property
     def state(self):
-        """Return the state of the sensor (available capacity)."""
-        return self.parking_data["availableCapacity"]
-
-    @property
-    def available(self):
-        """Return True if the entity is available."""
-        return bool(self.parking_data.get("isOpenNow", False))
+        return self._state
 
     @property
     def unit_of_measurement(self):
-        return "spaces"
+        return "Spaces"
+
+    @property
+    def device_state_attributes(self):
+        """Return device specific state attributes."""
+        return self._attributes
 
     @property
     def extra_state_attributes(self):
-        """Return additional attributes."""
-        return {
-            "isOpenNow": bool(self.parking_data["isOpenNow"]),
-            "lastUpdate": self.parking_data["lastUpdate"],
-            "location": self.parking_data["location"],
-            "latitude": self.parking_data["location"]["lat"],
-            "longitude": self.parking_data["location"]["lon"],
-            "occupation": self.parking_data["occupation"],
-            "openingTimes": self.parking_data["openingTimes"],
-            "totalCapacity": self.parking_data["totalCapacity"],
-            "url": self.parking_data["url"],
-        }
-
-    @property
-    def unique_id(self):
-        """Return a unique ID for the sensor."""
-        return f"parking_{self.parking_id.lower().replace(' ', '_')}"
+        """Return entity specific state attributes."""
+        return self._attributes
 
     async def async_update(self):
-        """Update the sensor."""
-        await self.coordinator.async_request_refresh()
-        self.parking_data = self.coordinator.data.get(self.parking_id, {})
+        # Replace the following with your sensor logic
+        _LOGGER.info("Updated Upoffiz Parking state to %s", self._state)
+
+        if not self._username or not self._password:
+            _LOGGER.error("Missing username or password in configuration file")
+        
+        # Call the API to retrieve the cookie
+        url = 'https://my.upoffiz.be/community/i/organizations/upgrade-estate/signin'
+        payload = {
+            'username': self._username,
+            'password': self._password
+        }
+
+        headers = {'Content-Type': 'application/json'}
+        
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.post(url, json=payload) as response:
+                if response.status != 200:
+                    _LOGGER.error("Failed to retrieve parking data for spot", await response.text())
+                    return
+                self._cookie = response.cookies.get('connect.sid').value
+                self._attributes['cookie'] = self._cookie
+
+        # Call the API to retrieve the access token
+        url = 'https://my.upoffiz.be/community/i/organizations/upgrade-estate/user/pages/65709563b7985583b1b82ee2'
+
+        headers = {'Content-Type': 'application/json'}
+        
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.get(url, cookies=response.cookies) as response:
+                status = response.status
+                data = await response.json()
+                if response.status != 200:
+                    _LOGGER.error("Failed to retrieve parking data for spot", {await response.text()})
+                    return
+
+        self._access_url = data['options']['url']
+
+        parsed_url = urlparse(self._access_url)
+        query_params = parse_qs(parsed_url.query)
+
+        nm = query_params['nm'][0]
+        cnm = query_params['cnm'][0]
+        cid = query_params['cid'][0]
+        mid = query_params['mid'][0]
+        tk = query_params['tk'][0]
+
+        self._attributes['nm'] = nm
+        self._attributes['cnm'] = cnm
+        self._attributes['cid'] = cid
+        self._attributes['mid'] = mid
+        self._attributes['tk'] = tk
+
+        url = 'https://visitor-api.upoffiz.be/v1/integration/parking/init/'
+        payload = {
+            "user-name": nm,
+            "user-id": mid,
+            "company-name": cnm,
+            "company-id": cid,
+            "token": tk
+        }           
+
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.post(url, json=payload) as response:
+                status = response.status
+                data = await response.json()
+        self._attributes['visitor parking'] = data['data']['availableGuestSpots']
+
+        self._state = data['data']['availableSpots']
