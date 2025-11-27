@@ -28,7 +28,7 @@ class UpoffizParkingSensor(Entity):
         self._attributes = {}
         self._cookie = None
         self._icon = "mdi:parking"
-
+        self._last_update = None
 
     @property
     def icon(self):
