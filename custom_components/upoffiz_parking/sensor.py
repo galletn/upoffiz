@@ -7,6 +7,7 @@ import requests
 from datetime import timedelta
 from urllib.parse import urlparse, parse_qs
 from homeassistant.const import CONF_SCAN_INTERVAL
+from homeassistant.helpers import discovery
 
 from homeassistant.helpers.entity import Entity
 
@@ -33,7 +34,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     
     # Load button platform
     hass.async_create_task(
-        hass.helpers.discovery.async_load_platform('button', 'upoffiz_parking', {}, config)
+        discovery.async_load_platform(hass, 'button', 'upoffiz_parking', {}, config)
     )
 
 class UpoffizParkingSensor(Entity):
