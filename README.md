@@ -24,6 +24,7 @@ add the following entry to the config file:
       night_interval: night
 
 ```yaml
+sensor:
     - platform: upoffiz_parking
       name: Upoffiz Parking
       username: [username]
