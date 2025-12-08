@@ -15,7 +15,26 @@ _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(minutes=5)
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    async_add_entities([UpoffizParkingSensor(config)])
+    sensor = UpoffizParkingSensor(config)
+    async_add_entities([sensor])
+    
+    # Store sensor in hass.data for button platform access
+    if 'upoffiz_parking' not in hass.data:
+        hass.data['upoffiz_parking'] = {}
+    hass.data['upoffiz_parking']['sensor'] = sensor
+    
+    # Register the refresh service
+    async def handle_refresh(call):
+        """Handle the refresh service call."""
+        await sensor.async_update(force=True)
+        await sensor.async_update_ha_state()
+    
+    hass.services.async_register('upoffiz_parking', 'refresh', handle_refresh)
+    
+    # Load button platform
+    hass.async_create_task(
+        hass.helpers.discovery.async_load_platform('button', 'upoffiz_parking', {}, config)
+    )
 
 class UpoffizParkingSensor(Entity):
     """Representation of the Upoffiz Parking sensor."""
@@ -29,6 +48,11 @@ class UpoffizParkingSensor(Entity):
         self._cookie = None
         self._icon = "mdi:parking"
         self._last_update = None
+        self._last_peak_update = None
+        # Configurable intervals (in seconds)
+        self._peak_interval = config.get('peak_interval', 30)  # Default: 30 seconds
+        self._off_peak_interval = config.get('off_peak_interval', 300)  # Default: 5 minutes
+        self._night_interval = config.get('night_interval', 3600)  # Default: 1 hour
 
     @property
     def icon(self):
@@ -56,30 +80,49 @@ class UpoffizParkingSensor(Entity):
         """Return entity specific state attributes."""
         return self._attributes
 
-    async def async_update(self):
+    async def async_update(self, force=False):
         from datetime import datetime, time
 
         now = datetime.now()
         now_time = now.time()
 
-        is_off_hours = time(22, 0) <= now_time or now_time <= time(6, 0)
+        # Check if we're in peak hours (7:30 - 9:30)
+        is_peak_hours = time(7, 30) <= now_time <= time(9, 30)
+        is_night_hours = time(22, 0) <= now_time or now_time <= time(6, 0)
         should_update = False
 
-        if is_off_hours:
-            if self._last_update is None or (now - self._last_update) >= timedelta(hours=1):
+        if force:
+            should_update = True
+            _LOGGER.info("Manual refresh triggered")
+        elif is_peak_hours:
+            # During peak hours, use configured peak interval
+            if self._last_peak_update is None or (now - self._last_peak_update) >= timedelta(seconds=self._peak_interval):
+                should_update = True
+                self._last_peak_update = now
+            else:
+                _LOGGER.debug("Peak hours: waiting for %s second interval", self._peak_interval)
+                return
+        elif is_night_hours:
+            # During night hours, use configured night interval
+            if self._last_update is None or (now - self._last_update) >= timedelta(seconds=self._night_interval):
                 should_update = True
             else:
-                _LOGGER.info("Off-hours: skipping update to reduce API calls.")
+                _LOGGER.info("Night hours: skipping update (interval: %s seconds)", self._night_interval)
                 return
         else:
-            should_update = True
+            # During off-peak hours, use configured off-peak interval
+            if self._last_update is None or (now - self._last_update) >= timedelta(seconds=self._off_peak_interval):
+                should_update = True
+            else:
+                _LOGGER.debug("Off-peak hours: waiting for %s second interval", self._off_peak_interval)
+                return
 
         if not should_update:
             return
 
         self._last_update = now  # Update the timestamp only when we do an actual update
 
-        _LOGGER.info("Updating Upoffiz Parking sensor at %s", now)
+        _LOGGER.info("Updating Upoffiz Parking sensor at %s (peak_hours=%s, night_hours=%s, force=%s)", now, is_peak_hours, is_night_hours, force)
 
         if not self._username or not self._password:
             _LOGGER.error("Missing username or password in configuration file")
