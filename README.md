@@ -30,7 +30,7 @@ sensor:
       username: [username]
       password: [password]
       peak_interval: 300
-      off_peak_interval: 300
+      off_peak_interval: 600
       night_interval: 3600
 ```
 
