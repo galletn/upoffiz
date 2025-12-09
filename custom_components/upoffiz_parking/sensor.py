@@ -57,6 +57,9 @@ class UpoffizParkingSensor(Entity):
         self._night_interval = config.get('night_interval', 3600)  # Default: 1 hour
         _LOGGER.info("Upoffiz Parking initialized with intervals - Peak: %ss, Off-peak: %ss, Night: %ss", 
                      self._peak_interval, self._off_peak_interval, self._night_interval)
+        # Configureable use only workdays for refresh during peak hours, defaults to false if not set
+        self.use_workday = config.get('use_workday', False)
+
 
     @property
     def icon(self):
@@ -96,14 +99,17 @@ class UpoffizParkingSensor(Entity):
         # Prefer the Workday sensor (includes country public holidays).
         # Fallback to Mon–Fri if Workday sensor not configured.
         is_workday = False
-        try:
-            wd = self.hass.states.get("binary_sensor.workday")
-            is_workday = (wd is not None and wd.state == "on")
-        except Exception as e:
-            _LOGGER.warning("Workday sensor lookup failed (%s); falling back to weekday check.", e)
+
+        if self.use_workday:
+            try:
+                wd = self.hass.states.get("binary_sensor.workday")
+                is_workday = (wd is not None and wd.state == "on")
+            except Exception as e:
+                _LOGGER.warning("Workday sensor lookup failed (%s); falling back to weekday check.", e)
+                is_workday = now.weekday() < 5  # Monday=0 ... Sunday=6
+        else:
             is_workday = now.weekday() < 5  # Monday=0 ... Sunday=6
-
-
+        
         # Check if we're in peak hours (7:30 - 9:30)
         
         is_peak_hours = time(7, 30) <= now_time <= time(9, 30)

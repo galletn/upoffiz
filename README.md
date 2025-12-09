@@ -18,13 +18,17 @@ Home Assistant Upoffiz integration
 
 #### Setup
 
-Make sure the Home assistant plugin "Workday" is installed on your HA installation if you only want to use the peak_interval refresh during working days.
+Make sure the Home assistant plugin "Workday" is installed on your HA installation if you only want to use the peak_interval refresh interval during working days 
+make sure to set "use_workday: True"
+the Workday plugin only returns true when not weekend, or public holidays
+if use_workday is not defined, fails back to weekdays mon-fri
 
 add the following entry to the config file:
 
 - peak_interval: between 7:30 and 9:30
 - off_peak_interval: working hours
 - night_interval: night
+- use_workday: True
 
 ```yaml
 sensor:
@@ -35,5 +39,6 @@ sensor:
       peak_interval: 300
       off_peak_interval: 600
       night_interval: 3600
+      use_workday: True
 ```
 
