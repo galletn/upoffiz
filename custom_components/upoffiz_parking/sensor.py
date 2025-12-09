@@ -8,6 +8,7 @@ from datetime import timedelta
 from urllib.parse import urlparse, parse_qs
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.helpers import discovery
+from homeassistant.util import dt as dt_util
 
 from homeassistant.helpers.entity import Entity
 
@@ -54,6 +55,8 @@ class UpoffizParkingSensor(Entity):
         self._peak_interval = config.get('peak_interval', 30)  # Default: 30 seconds
         self._off_peak_interval = config.get('off_peak_interval', 300)  # Default: 5 minutes
         self._night_interval = config.get('night_interval', 3600)  # Default: 1 hour
+        _LOGGER.info("Upoffiz Parking initialized with intervals - Peak: %ss, Off-peak: %ss, Night: %ss", 
+                     self._peak_interval, self._off_peak_interval, self._night_interval)
 
     @property
     def icon(self):
@@ -82,9 +85,10 @@ class UpoffizParkingSensor(Entity):
         return self._attributes
 
     async def async_update(self, force=False):
-        from datetime import datetime, time
+        from datetime import time
 
-        now = datetime.now()
+        # Use Home Assistant's timezone-aware datetime
+        now = dt_util.now()
         now_time = now.time()
 
         # Check if we're in peak hours (7:30 - 9:30)
@@ -92,30 +96,41 @@ class UpoffizParkingSensor(Entity):
         is_night_hours = time(22, 0) <= now_time or now_time <= time(6, 0)
         should_update = False
 
+        # Log current time and timezone info
+        _LOGGER.info("Update check at %s (local time: %s, TZ: %s)", now, now_time, now.tzinfo)
+
         if force:
             should_update = True
             _LOGGER.info("Manual refresh triggered")
         elif is_peak_hours:
             # During peak hours, use configured peak interval
+            time_since_last = (now - self._last_peak_update).total_seconds() if self._last_peak_update else None
+            _LOGGER.info("Peak hours detected! Time since last peak update: %s seconds (interval: %s seconds)", 
+                        time_since_last, self._peak_interval)
             if self._last_peak_update is None or (now - self._last_peak_update) >= timedelta(seconds=self._peak_interval):
                 should_update = True
                 self._last_peak_update = now
             else:
-                _LOGGER.debug("Peak hours: waiting for %s second interval", self._peak_interval)
+                _LOGGER.info("Peak hours: waiting for %s second interval (still %s seconds to go)", 
+                           self._peak_interval, self._peak_interval - time_since_last)
                 return
         elif is_night_hours:
             # During night hours, use configured night interval
+            time_since_last = (now - self._last_update).total_seconds() if self._last_update else None
             if self._last_update is None or (now - self._last_update) >= timedelta(seconds=self._night_interval):
                 should_update = True
             else:
-                _LOGGER.info("Night hours: skipping update (interval: %s seconds)", self._night_interval)
+                _LOGGER.info("Night hours: skipping update (interval: %s seconds, time since last: %s seconds)", 
+                           self._night_interval, time_since_last)
                 return
         else:
             # During off-peak hours, use configured off-peak interval
+            time_since_last = (now - self._last_update).total_seconds() if self._last_update else None
             if self._last_update is None or (now - self._last_update) >= timedelta(seconds=self._off_peak_interval):
                 should_update = True
             else:
-                _LOGGER.debug("Off-peak hours: waiting for %s second interval", self._off_peak_interval)
+                _LOGGER.info("Off-peak hours: waiting for %s second interval (time since last: %s seconds)", 
+                           self._off_peak_interval, time_since_last)
                 return
 
         if not should_update:
@@ -123,7 +138,7 @@ class UpoffizParkingSensor(Entity):
 
         self._last_update = now  # Update the timestamp only when we do an actual update
 
-        _LOGGER.info("Updating Upoffiz Parking sensor at %s (peak_hours=%s, night_hours=%s, force=%s)", now, is_peak_hours, is_night_hours, force)
+        _LOGGER.info("Executing update at %s (peak_hours=%s, night_hours=%s, force=%s)", now, is_peak_hours, is_night_hours, force)
 
         if not self._username or not self._password:
             _LOGGER.error("Missing username or password in configuration file")
