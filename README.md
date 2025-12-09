@@ -20,10 +20,18 @@ Home Assistant Upoffiz integration
 
 add the following entry to the config file:
 
+- peak_interval: between 7:30 and 9:30
+- off_peak_interval: working hours
+- night_interval: night
+
 ```yaml
+sensor:
     - platform: upoffiz_parking
       name: Upoffiz Parking
       username: [username]
       password: [password]
+      peak_interval: 300
+      off_peak_interval: 600
+      night_interval: 3600
 ```
 
