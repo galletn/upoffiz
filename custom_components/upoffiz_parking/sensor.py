@@ -114,9 +114,10 @@ class UpoffizParkingSensor(Entity):
         
         is_peak_hours = time(7, 30) <= now_time <= time(9, 30)
 
-        #check if we're in the peak window
+        #check if we're in the peak window and parking value is not 0
 
-        is_peak_window = is_workday and is_peak_hours
+        #is_peak_window = is_workday and is_peak_hours and self._state > 0
+        is_peak_window = is_workday and is_peak_hours and (self._state is None or (isinstance(self._state, (int, float)) and self._state > 0) or (isinstance(self._state, str) and self._state.isdigit() and int(self._state) > 0))
 
         is_night_hours = time(22, 0) <= now_time or now_time <= time(6, 0)
         should_update = False
