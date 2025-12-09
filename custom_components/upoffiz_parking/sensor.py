@@ -91,9 +91,18 @@ class UpoffizParkingSensor(Entity):
         now = dt_util.now()
         now_time = now.time()
 
-        #check if today is a working day MON-FRI
+       
+        # ---- Workday + holiday awareness ----
+        # Prefer the Workday sensor (includes country public holidays).
+        # Fallback to Mon–Fri if Workday sensor not configured.
+        is_workday = False
+        try:
+            wd = self.hass.states.get("binary_sensor.workday")
+            is_workday = (wd is not None and wd.state == "on")
+        except Exception as e:
+            _LOGGER.warning("Workday sensor lookup failed (%s); falling back to weekday check.", e)
+            is_workday = now.weekday() < 5  # Monday=0 ... Sunday=6
 
-        is_weekday = now.weekday() < 5  # Monday=0 ... Sunday=6
 
         # Check if we're in peak hours (7:30 - 9:30)
         
@@ -101,8 +110,8 @@ class UpoffizParkingSensor(Entity):
 
         #check if we're in the peak window
 
-        is_peak_window = is_weekday and is_peak_hours
-        
+        is_peak_window = is_workday and is_peak_hours
+
         is_night_hours = time(22, 0) <= now_time or now_time <= time(6, 0)
         should_update = False
 
