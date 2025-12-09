@@ -91,8 +91,18 @@ class UpoffizParkingSensor(Entity):
         now = dt_util.now()
         now_time = now.time()
 
+        #check if today is a working day MON-FRI
+
+        is_weekday = now.weekday() < 5  # Monday=0 ... Sunday=6
+
         # Check if we're in peak hours (7:30 - 9:30)
+        
         is_peak_hours = time(7, 30) <= now_time <= time(9, 30)
+
+        #check if we're in the peak window
+
+        is_peak_window = is_weekday and is_peak_hours
+        
         is_night_hours = time(22, 0) <= now_time or now_time <= time(6, 0)
         should_update = False
 
@@ -102,7 +112,7 @@ class UpoffizParkingSensor(Entity):
         if force:
             should_update = True
             _LOGGER.info("Manual refresh triggered")
-        elif is_peak_hours:
+        elif is_peak_window:
             # During peak hours, use configured peak interval
             time_since_last = (now - self._last_peak_update).total_seconds() if self._last_peak_update else None
             _LOGGER.info("Peak hours detected! Time since last peak update: %s seconds (interval: %s seconds)", 
@@ -138,7 +148,7 @@ class UpoffizParkingSensor(Entity):
 
         self._last_update = now  # Update the timestamp only when we do an actual update
 
-        _LOGGER.info("Executing update at %s (peak_hours=%s, night_hours=%s, force=%s)", now, is_peak_hours, is_night_hours, force)
+        _LOGGER.info("Executing update at %s (peak_hours=%s, night_hours=%s, force=%s)", now, is_peak_window, is_night_hours, force)
 
         if not self._username or not self._password:
             _LOGGER.error("Missing username or password in configuration file")
