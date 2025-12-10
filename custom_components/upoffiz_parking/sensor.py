@@ -8,16 +8,25 @@ from datetime import timedelta
 from urllib.parse import urlparse, parse_qs
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.helpers import discovery
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from homeassistant.helpers.entity import Entity
 
 _LOGGER = logging.getLogger(__name__)
 
-SCAN_INTERVAL = timedelta(minutes=5)
-
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     sensor = UpoffizParkingSensor(config)
+    
+    # Set SCAN_INTERVAL dynamically to the minimum configured interval
+    global SCAN_INTERVAL
+    peak_interval = config.get('peak_interval', 30)
+    off_peak_interval = config.get('off_peak_interval', 300)
+    night_interval = config.get('night_interval', 3600)
+    min_interval = min(peak_interval, off_peak_interval, night_interval)
+    SCAN_INTERVAL = timedelta(seconds=min_interval)
+    _LOGGER.info("SCAN_INTERVAL set to %s seconds (minimum of configured intervals)", min_interval)
+    
     async_add_entities([sensor])
     
     # Store sensor in hass.data for button platform access
