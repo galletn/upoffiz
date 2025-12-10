@@ -57,6 +57,9 @@ class UpoffizParkingSensor(Entity):
         self._night_interval = config.get('night_interval', 3600)  # Default: 1 hour
         _LOGGER.info("Upoffiz Parking initialized with intervals - Peak: %ss, Off-peak: %ss, Night: %ss", 
                      self._peak_interval, self._off_peak_interval, self._night_interval)
+        # Configureable use only workdays for refresh during peak hours, defaults to false if not set
+        self.use_workday = config.get('use_workday', False)
+
 
     @property
     def icon(self):
@@ -91,8 +94,31 @@ class UpoffizParkingSensor(Entity):
         now = dt_util.now()
         now_time = now.time()
 
+       
+        # ---- Workday + holiday awareness ----
+        # Prefer the Workday sensor (includes country public holidays).
+        # Fallback to Mon–Fri if Workday sensor not configured.
+        is_workday = False
+
+        if self.use_workday:
+            try:
+                wd = self.hass.states.get("binary_sensor.workday")
+                is_workday = (wd is not None and wd.state == "on")
+            except Exception as e:
+                _LOGGER.warning("Workday sensor lookup failed (%s); falling back to weekday check.", e)
+                is_workday = now.weekday() < 5  # Monday=0 ... Sunday=6
+        else:
+            is_workday = now.weekday() < 5  # Monday=0 ... Sunday=6
+        
         # Check if we're in peak hours (7:30 - 9:30)
+        
         is_peak_hours = time(7, 30) <= now_time <= time(9, 30)
+
+        #check if we're in the peak window and parking value is not 0
+
+        #is_peak_window = is_workday and is_peak_hours and self._state > 0
+        is_peak_window = is_workday and is_peak_hours and (self._state is None or (isinstance(self._state, (int, float)) and self._state > 0) or (isinstance(self._state, str) and self._state.isdigit() and int(self._state) > 0))
+
         is_night_hours = time(22, 0) <= now_time or now_time <= time(6, 0)
         should_update = False
 
@@ -102,7 +128,7 @@ class UpoffizParkingSensor(Entity):
         if force:
             should_update = True
             _LOGGER.info("Manual refresh triggered")
-        elif is_peak_hours:
+        elif is_peak_window:
             # During peak hours, use configured peak interval
             time_since_last = (now - self._last_peak_update).total_seconds() if self._last_peak_update else None
             _LOGGER.info("Peak hours detected! Time since last peak update: %s seconds (interval: %s seconds)", 
@@ -138,7 +164,7 @@ class UpoffizParkingSensor(Entity):
 
         self._last_update = now  # Update the timestamp only when we do an actual update
 
-        _LOGGER.info("Executing update at %s (peak_hours=%s, night_hours=%s, force=%s)", now, is_peak_hours, is_night_hours, force)
+        _LOGGER.info("Executing update at %s (peak_hours=%s, night_hours=%s, force=%s)", now, is_peak_window, is_night_hours, force)
 
         if not self._username or not self._password:
             _LOGGER.error("Missing username or password in configuration file")
