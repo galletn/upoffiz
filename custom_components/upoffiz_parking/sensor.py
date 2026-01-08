@@ -67,7 +67,7 @@ class UpoffizParkingSensor(Entity):
         _LOGGER.info("Upoffiz Parking initialized with intervals - Peak: %ss, Off-peak: %ss, Night: %ss", 
                      self._peak_interval, self._off_peak_interval, self._night_interval)
         # Configureable use only workdays for refresh during peak hours, defaults to false if not set
-        self.use_workday = config.get('use_workday', False)
+        self._use_workday = config.get('use_workday', False)
 
 
     @property
@@ -109,9 +109,9 @@ class UpoffizParkingSensor(Entity):
         # Fallback to Mon–Fri if Workday sensor not configured.
         is_workday = False
 
-        if self.use_workday:
+        if self._use_workday:
             try:
-                wd = self.hass.states.get("binary_sensor.workday")
+                wd = self.hass.states.get("binary_sensor.workday_sensor")
                 is_workday = (wd is not None and wd.state == "on")
             except Exception as e:
                 _LOGGER.warning("Workday sensor lookup failed (%s); falling back to weekday check.", e)
