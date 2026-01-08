@@ -64,10 +64,12 @@ class UpoffizParkingSensor(Entity):
         self._peak_interval = config.get('peak_interval', 30)  # Default: 30 seconds
         self._off_peak_interval = config.get('off_peak_interval', 300)  # Default: 5 minutes
         self._night_interval = config.get('night_interval', 3600)  # Default: 1 hour
-        _LOGGER.info("Upoffiz Parking initialized with intervals - Peak: %ss, Off-peak: %ss, Night: %ss", 
-                     self._peak_interval, self._off_peak_interval, self._night_interval)
-        # Configureable use only workdays for refresh during peak hours, defaults to false if not set
+         # Configureable use only workdays for refresh during peak hours, defaults to false if not set
         self._use_workday = config.get('use_workday', False)
+
+        _LOGGER.info("Upoffiz Parking initialized with intervals - Peak: %ss, Off-peak: %ss, Night: %ss , workday check enabled %ss", 
+                     self._peak_interval, self._off_peak_interval, self._night_interval,self._use_workday)
+       
 
 
     @property
@@ -112,6 +114,7 @@ class UpoffizParkingSensor(Entity):
         if self._use_workday:
             try:
                 wd = self.hass.states.get("binary_sensor.workday_sensor")
+                _LOGGER.info("workday integration status : %ss",wd)
                 is_workday = (wd is not None and wd.state == "on")
             except Exception as e:
                 _LOGGER.warning("Workday sensor lookup failed (%s); falling back to weekday check.", e)
@@ -126,7 +129,7 @@ class UpoffizParkingSensor(Entity):
         #check if we're in the peak window and parking value is not 0
 
         #is_peak_window = is_workday and is_peak_hours and self._state > 0
-        is_peak_window = is_workday and is_peak_hours and (self._state is None or (isinstance(self._state, (int, float)) and self._state > 0) or (isinstance(self._state, str) and self._state.isdigit() and int(self._state) > 0))
+        is_peak_window = is_workday and is_peak_hours
 
         is_night_hours = time(22, 0) <= now_time or now_time <= time(6, 0)
         should_update = False
