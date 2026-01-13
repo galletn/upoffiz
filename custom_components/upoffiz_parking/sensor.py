@@ -15,37 +15,42 @@ from homeassistant.helpers.entity import Entity
 
 _LOGGER = logging.getLogger(__name__)
 
+
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     sensor = UpoffizParkingSensor(config)
-    
+
     # Set SCAN_INTERVAL dynamically to the minimum configured interval
     global SCAN_INTERVAL
-    peak_interval = config.get('peak_interval', 30)
-    off_peak_interval = config.get('off_peak_interval', 300)
-    night_interval = config.get('night_interval', 3600)
+    peak_interval = config.get("peak_interval", 30)
+    off_peak_interval = config.get("off_peak_interval", 300)
+    night_interval = config.get("night_interval", 3600)
     min_interval = min(peak_interval, off_peak_interval, night_interval)
     SCAN_INTERVAL = timedelta(seconds=min_interval)
-    _LOGGER.info("SCAN_INTERVAL set to %s seconds (minimum of configured intervals)", min_interval)
-    
+    _LOGGER.info(
+        "SCAN_INTERVAL set to %s seconds (minimum of configured intervals)",
+        min_interval,
+    )
+
     async_add_entities([sensor])
-    
+
     # Store sensor in hass.data for button platform access
-    if 'upoffiz_parking' not in hass.data:
-        hass.data['upoffiz_parking'] = {}
-    hass.data['upoffiz_parking']['sensor'] = sensor
-    
+    if "upoffiz_parking" not in hass.data:
+        hass.data["upoffiz_parking"] = {}
+    hass.data["upoffiz_parking"]["sensor"] = sensor
+
     # Register the refresh service
     async def handle_refresh(call):
         """Handle the refresh service call."""
         await sensor.async_update(force=True)
         await sensor.async_update_ha_state()
-    
-    hass.services.async_register('upoffiz_parking', 'refresh', handle_refresh)
-    
+
+    hass.services.async_register("upoffiz_parking", "refresh", handle_refresh)
+
     # Load button platform
     hass.async_create_task(
-        discovery.async_load_platform(hass, 'button', 'upoffiz_parking', {}, config)
+        discovery.async_load_platform(hass, "button", "upoffiz_parking", {}, config)
     )
+
 
 class UpoffizParkingSensor(Entity):
     """Representation of the Upoffiz Parking sensor."""
@@ -53,22 +58,29 @@ class UpoffizParkingSensor(Entity):
     def __init__(self, config):
         self._state = None
         self._name = "Upoffiz Parking"
-        self._username = config.get('username')
-        self._password = config.get('password')
+        self._username = config.get("username")
+        self._password = config.get("password")
         self._attributes = {}
         self._cookie = None
         self._icon = "mdi:parking"
         self._last_update = None
         self._last_peak_update = None
         # Configurable intervals (in seconds)
-        self._peak_interval = config.get('peak_interval', 30)  # Default: 30 seconds
-        self._off_peak_interval = config.get('off_peak_interval', 300)  # Default: 5 minutes
-        self._night_interval = config.get('night_interval', 3600)  # Default: 1 hour
-        _LOGGER.info("Upoffiz Parking initialized with intervals - Peak: %ss, Off-peak: %ss, Night: %ss", 
-                     self._peak_interval, self._off_peak_interval, self._night_interval)
+        self._peak_interval = config.get("peak_interval", 30)  # Default: 30 seconds
+        self._off_peak_interval = config.get(
+            "off_peak_interval", 300
+        )  # Default: 5 minutes
+        self._night_interval = config.get("night_interval", 3600)  # Default: 1 hour
         # Configureable use only workdays for refresh during peak hours, defaults to false if not set
-        self.use_workday = config.get('use_workday', False)
+        self._use_workday = config.get("use_workday", False)
 
+        _LOGGER.info(
+            "Upoffiz Parking initialized with intervals - Peak: %ss, Off-peak: %ss, Night: %ss , workday check enabled %ss",
+            self._peak_interval,
+            self._off_peak_interval,
+            self._night_interval,
+            self._use_workday,
+        )
 
     @property
     def icon(self):
@@ -103,69 +115,100 @@ class UpoffizParkingSensor(Entity):
         now = dt_util.now()
         now_time = now.time()
 
-       
         # ---- Workday + holiday awareness ----
         # Prefer the Workday sensor (includes country public holidays).
         # Fallback to Mon–Fri if Workday sensor not configured.
         is_workday = False
 
-        if self.use_workday:
+        if self._use_workday:
             try:
-                wd = self.hass.states.get("binary_sensor.workday")
-                is_workday = (wd is not None and wd.state == "on")
+                wd = self.hass.states.get("binary_sensor.workday_sensor")
+                _LOGGER.info("workday integration status : %ss", wd)
+                is_workday = wd is not None and wd.state == "on"
             except Exception as e:
-                _LOGGER.warning("Workday sensor lookup failed (%s); falling back to weekday check.", e)
+                _LOGGER.warning(
+                    "Workday sensor lookup failed (%s); falling back to weekday check.",
+                    e,
+                )
                 is_workday = now.weekday() < 5  # Monday=0 ... Sunday=6
         else:
             is_workday = now.weekday() < 5  # Monday=0 ... Sunday=6
-        
+
         # Check if we're in peak hours (7:30 - 9:30)
-        
+
         is_peak_hours = time(7, 30) <= now_time <= time(9, 30)
 
-        #check if we're in the peak window and parking value is not 0
+        # check if we're in the peak window and parking value is not 0
 
-        #is_peak_window = is_workday and is_peak_hours and self._state > 0
-        is_peak_window = is_workday and is_peak_hours and (self._state is None or (isinstance(self._state, (int, float)) and self._state > 0) or (isinstance(self._state, str) and self._state.isdigit() and int(self._state) > 0))
+        # is_peak_window = is_workday and is_peak_hours and self._state > 0
+        is_peak_window = is_workday and is_peak_hours
 
         is_night_hours = time(22, 0) <= now_time or now_time <= time(6, 0)
         should_update = False
 
         # Log current time and timezone info
-        _LOGGER.info("Update check at %s (local time: %s, TZ: %s)", now, now_time, now.tzinfo)
+        _LOGGER.info(
+            "Update check at %s (local time: %s, TZ: %s)", now, now_time, now.tzinfo
+        )
 
         if force:
             should_update = True
             _LOGGER.info("Manual refresh triggered")
         elif is_peak_window:
             # During peak hours, use configured peak interval
-            time_since_last = (now - self._last_peak_update).total_seconds() if self._last_peak_update else None
-            _LOGGER.info("Peak hours detected! Time since last peak update: %s seconds (interval: %s seconds)", 
-                        time_since_last, self._peak_interval)
-            if self._last_peak_update is None or (now - self._last_peak_update) >= timedelta(seconds=self._peak_interval):
+            time_since_last = (
+                (now - self._last_peak_update).total_seconds()
+                if self._last_peak_update
+                else None
+            )
+            _LOGGER.info(
+                "Peak hours detected! Time since last peak update: %s seconds (interval: %s seconds)",
+                time_since_last,
+                self._peak_interval,
+            )
+            if self._last_peak_update is None or (
+                now - self._last_peak_update
+            ) >= timedelta(seconds=self._peak_interval):
                 should_update = True
                 self._last_peak_update = now
             else:
-                _LOGGER.info("Peak hours: waiting for %s second interval (still %s seconds to go)", 
-                           self._peak_interval, self._peak_interval - time_since_last)
+                _LOGGER.info(
+                    "Peak hours: waiting for %s second interval (still %s seconds to go)",
+                    self._peak_interval,
+                    self._peak_interval - time_since_last,
+                )
                 return
         elif is_night_hours:
             # During night hours, use configured night interval
-            time_since_last = (now - self._last_update).total_seconds() if self._last_update else None
-            if self._last_update is None or (now - self._last_update) >= timedelta(seconds=self._night_interval):
+            time_since_last = (
+                (now - self._last_update).total_seconds() if self._last_update else None
+            )
+            if self._last_update is None or (now - self._last_update) >= timedelta(
+                seconds=self._night_interval
+            ):
                 should_update = True
             else:
-                _LOGGER.info("Night hours: skipping update (interval: %s seconds, time since last: %s seconds)", 
-                           self._night_interval, time_since_last)
+                _LOGGER.info(
+                    "Night hours: skipping update (interval: %s seconds, time since last: %s seconds)",
+                    self._night_interval,
+                    time_since_last,
+                )
                 return
         else:
             # During off-peak hours, use configured off-peak interval
-            time_since_last = (now - self._last_update).total_seconds() if self._last_update else None
-            if self._last_update is None or (now - self._last_update) >= timedelta(seconds=self._off_peak_interval):
+            time_since_last = (
+                (now - self._last_update).total_seconds() if self._last_update else None
+            )
+            if self._last_update is None or (now - self._last_update) >= timedelta(
+                seconds=self._off_peak_interval
+            ):
                 should_update = True
             else:
-                _LOGGER.info("Off-peak hours: waiting for %s second interval (time since last: %s seconds)", 
-                           self._off_peak_interval, time_since_last)
+                _LOGGER.info(
+                    "Off-peak hours: waiting for %s second interval (time since last: %s seconds)",
+                    self._off_peak_interval,
+                    time_since_last,
+                )
                 return
 
         if not should_update:
@@ -173,77 +216,86 @@ class UpoffizParkingSensor(Entity):
 
         self._last_update = now  # Update the timestamp only when we do an actual update
 
-        _LOGGER.info("Executing update at %s (peak_hours=%s, night_hours=%s, force=%s)", now, is_peak_window, is_night_hours, force)
+        _LOGGER.info(
+            "Executing update at %s (peak_hours=%s, night_hours=%s, force=%s)",
+            now,
+            is_peak_window,
+            is_night_hours,
+            force,
+        )
 
         if not self._username or not self._password:
             _LOGGER.error("Missing username or password in configuration file")
-        
-        # Call the API to retrieve the cookie
-        url = 'https://my.upoffiz.be/community/i/organizations/upgrade-estate/signin'
-        payload = {
-            'username': self._username,
-            'password': self._password
-        }
 
-        headers = {'Content-Type': 'application/json'}
-        
+        # Call the API to retrieve the cookie
+        url = "https://my.upoffiz.be/community/i/organizations/upgrade-estate/signin"
+        payload = {"username": self._username, "password": self._password}
+
+        headers = {"Content-Type": "application/json"}
+
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.post(url, json=payload) as response:
                 if response.status != 200:
-                    _LOGGER.error("Failed to retrieve parking data for spot", await response.text())
+                    _LOGGER.error(
+                        "Failed to retrieve parking data for spot",
+                        await response.text(),
+                    )
                     return
-                self._cookie = response.cookies.get('connect.sid').value
-                self._attributes['cookie'] = self._cookie
+                self._cookie = response.cookies.get("connect.sid").value
+                self._attributes["cookie"] = self._cookie
 
         # Call the API to retrieve the access token
-        url = 'https://my.upoffiz.be/community/i/organizations/upgrade-estate/user/pages/65709563b7985583b1b82ee2'
+        url = "https://my.upoffiz.be/community/i/organizations/upgrade-estate/user/pages/65709563b7985583b1b82ee2"
 
-        headers = {'Content-Type': 'application/json', 'User-Agent': 'ImAKoffiePot:)'}
-        
+        headers = {"Content-Type": "application/json", "User-Agent": "ImAKoffiePot:)"}
+
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.get(url, cookies=response.cookies) as response:
                 status = response.status
                 data = await response.json()
                 if response.status != 200:
-                    _LOGGER.error("Failed to retrieve parking data for spot", {await response.text()})
+                    _LOGGER.error(
+                        "Failed to retrieve parking data for spot",
+                        {await response.text()},
+                    )
                     return
 
-        self._access_url = data['options']['url']
+        self._access_url = data["options"]["url"]
 
         parsed_url = urlparse(self._access_url)
         query_params = parse_qs(parsed_url.query)
 
-        nm = query_params['nm'][0]
-        cnm = query_params['cnm'][0]
-        cid = query_params['cid'][0]
-        mid = query_params['mid'][0]
-        tk = query_params['tk'][0]
+        nm = query_params["nm"][0]
+        cnm = query_params["cnm"][0]
+        cid = query_params["cid"][0]
+        mid = query_params["mid"][0]
+        tk = query_params["tk"][0]
 
-        self._attributes['nm'] = nm
-        self._attributes['cnm'] = cnm
-        self._attributes['cid'] = cid
-        self._attributes['mid'] = mid
-        self._attributes['tk'] = tk
+        self._attributes["nm"] = nm
+        self._attributes["cnm"] = cnm
+        self._attributes["cid"] = cid
+        self._attributes["mid"] = mid
+        self._attributes["tk"] = tk
 
-        url = 'https://visitor-api.upoffiz.be/v1/integration/parking/init/'
+        url = "https://visitor-api.upoffiz.be/v1/integration/parking/init/"
         payload = {
             "user-name": nm,
             "user-id": mid,
             "company-name": cnm,
             "company-id": cid,
-            "token": tk
-        }           
+            "token": tk,
+        }
 
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.post(url, json=payload) as response:
                 status = response.status
                 data = await response.json()
         try:
-            self._attributes['visitor parking'] = data['data']['availableGuestSpots']
+            self._attributes["visitor parking"] = data["data"]["availableGuestSpots"]
         except:
-            self._attributes['visitor parking'] = "error loading guest spots"
-        
+            self._attributes["visitor parking"] = "error loading guest spots"
+
         try:
-            self._state = data['data']['availableSpots']
+            self._state = data["data"]["availableSpots"]
         except:
-            self._state = data #return all data to at least debug if it is not found
+            self._state = data  # return all data to at least debug if it is not found
